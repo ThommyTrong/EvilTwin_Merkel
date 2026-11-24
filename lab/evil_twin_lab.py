@@ -542,13 +542,27 @@ def roam_client(if_client, target_bssid, kali_ui=False, mode="wpa2"):
         print(f"\n[*] Warte auf WLAN-Scan mit Ziel-BSSID {target_bssid}...")
         if not wait_for_nmcli_bssid(if_client, target_bssid):
             return
+        # NetworkManager reuses a generic SSID profile even when "bssid" was passed.
+        # Disconnecting first forces the following connection to honor the exact AP.
+        print(f"\n$ nmcli device disconnect {if_client}")
+        dis = run(["nmcli", "device", "disconnect", if_client], check=False, capture=True)
+        print(" ", dis.stdout.strip())
         cmd = ["nmcli", "device", "wifi", "connect", SSID, "bssid", target_bssid, "ifname", if_client]
         if mode != "open":
             cmd += ["password", PASSWD]
         print(f"\n$ {' '.join(cmd)}")
         res = run(cmd, check=False, capture=True)
         print(" ", res.stdout.strip())
-        time.sleep(2)
+        deadline = time.time() + 8.0
+        while time.time() < deadline:
+            time.sleep(0.5)
+            link = run(["iw", "dev", if_client, "link"], check=False, capture=True).stdout
+            if f"Connected to {target_bssid}" in link:
+                break
+        if f"Connected to {target_bssid}" not in link:
+            print(f"[!] NetworkManager blieb nicht auf Ziel-BSSID {target_bssid}.")
+            print("    Notfallbefehl:")
+            print(f"    sudo nmcli device wifi connect '{SSID}' bssid {target_bssid} ifname {if_client}" + (f" password '{PASSWD}'" if mode != "open" else ""))
         run(["ip", "neigh", "flush", "dev", if_client], check=False, capture=True)
         show_status(if_client, kali_ui=True)
         return
