@@ -1,6 +1,18 @@
 # 🎯 Evil Twin - DHBW Praxisarbeit Präsentation
 ## Komplettes Paket für 20-minütige Offensive Security Verteidigung
 
+## Virtuelle Labor-Demo
+
+Für die Live-Demo ohne echten WLAN-USB-Adapter siehe:
+
+- [VIRTUELLE_DEMO_ANLEITUNG.md](VIRTUELLE_DEMO_ANLEITUNG.md)
+- [lab/evil_twin_lab.py](lab/evil_twin_lab.py)
+- [lab/README.txt](lab/README.txt)
+
+Die Demo verwendet mac80211_hwsim und Mininet-WiFi. Es entstehen virtuelle
+WLAN-Schnittstellen in einer Linux-VM; keine realen Funkframes verlassen die
+VM.
+
 ---
 
 ## 📦 INHALT DIESES PAKETS
