@@ -520,7 +520,9 @@ def wait_for_nmcli_bssid(if_client, target_bssid, timeout=15.0):
             capture=True,
         ).stdout
         last = scan.strip()
-        if target_bssid.lower() in scan.lower():
+        # nmcli's terse output escapes colons as "\:".
+        normalized_scan = scan.replace("\\:", ":")
+        if target_bssid.lower() in normalized_scan.lower():
             print(f"[*] NetworkManager sieht Ziel-BSSID {target_bssid}.")
             return True
     print(f"[!] NetworkManager sieht {target_bssid} nach {timeout:.0f}s noch nicht.")
