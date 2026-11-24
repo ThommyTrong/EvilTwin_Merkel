@@ -501,10 +501,44 @@ def live_router_monitor(legit_log, evil_log):
         print("\n[*] Live-Monitor beendet, zurück zum Menü.")
 
 
+def wait_for_nmcli_bssid(if_client, target_bssid, timeout=15.0):
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        run(
+            ["nmcli", "device", "wifi", "rescan", "ifname", if_client],
+            check=False,
+            capture=True,
+        )
+        time.sleep(1.2)
+        scan = run(
+            [
+                "nmcli", "-t", "-f", "BSSID,SSID,SIGNAL",
+                "dev", "wifi", "list", "ifname", if_client,
+            ],
+            check=False,
+            capture=True,
+        ).stdout
+        last = scan.strip()
+        if target_bssid.lower() in scan.lower():
+            print(f"[*] NetworkManager sieht Ziel-BSSID {target_bssid}.")
+            return True
+    print(f"[!] NetworkManager sieht {target_bssid} nach {timeout:.0f}s noch nicht.")
+    if last:
+        print(last)
+    raw = run(["iw", "dev", if_client, "scan"], check=False, capture=True).stdout
+    if target_bssid.lower() in raw.lower():
+        print("[i] Der Kernel sieht die BSSID, NetworkManager aber noch nicht. Noch einmal [2], dann [4] versuchen.")
+    return False
+
+
 def roam_client(if_client, target_bssid, kali_ui=False, mode="wpa2"):
     if kali_ui:
         if not find_bin("nmcli"):
             print("\n[!] nmcli nicht gefunden — bitte in den Kali-WLAN-Einstellungen wechseln.")
+            return
+        print(f"\n[*] Warte auf WLAN-Scan mit Ziel-BSSID {target_bssid}...")
+        if not wait_for_nmcli_bssid(if_client, target_bssid):
             return
         cmd = ["nmcli", "device", "wifi", "connect", SSID, "bssid", target_bssid, "ifname", if_client]
         if mode != "open":
@@ -669,14 +703,18 @@ def main():
             if evil_started:
                 return
             print(f"\n[*] Starte Evil-Twin-AP ({SSID}, BSSID {BSSID_EVIL})...")
-            procs.append(
-                subprocess.Popen(
-                    ["ip", "netns", "exec", NS_EVIL, "hostapd", str(conf_evil)],
-                    stdout=open(tmpdir / "evil_ap.log", "w"),
-                    stderr=subprocess.STDOUT,
-                )
+            evil_ap_log = tmpdir / "evil_ap.log"
+            evil_ap = subprocess.Popen(
+                ["ip", "netns", "exec", NS_EVIL, "hostapd", str(conf_evil)],
+                stdout=open(evil_ap_log, "w"),
+                stderr=subprocess.STDOUT,
             )
+            procs.append(evil_ap)
             time.sleep(1.5)
+            if evil_ap.poll() is not None:
+                print("[!] Evil-Twin-AP konnte nicht starten:")
+                print(evil_ap_log.read_text(encoding="utf-8").strip())
+                return
             ns_cmd(NS_EVIL, "ip", "addr", "replace", "10.0.0.1/24", "dev", if_evil)
             if args.kali_ui:
                 procs.append(start_dhcp_only(NS_EVIL, if_evil, dnsmasq_bin, tmpdir / "dnsmasq_evil.log"))
@@ -688,7 +726,9 @@ def main():
                 )
             )
             evil_started = True
-            print("[*] Evil Twin läuft.")
+            print("[*] Evil Twin läuft; warte auf Sichtbarkeit bei NetworkManager...")
+            if args.kali_ui:
+                wait_for_nmcli_bssid(if_client, BSSID_EVIL)
 
         print("\n=== Virtuelle Evil-Twin-Demo bereit (kein reales Funksignal) ===")
         show_status(if_client, kali_ui=args.kali_ui)
