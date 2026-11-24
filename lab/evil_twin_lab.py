@@ -52,6 +52,11 @@ h1{margin:0 0 10px;font-size:34px;line-height:1.1}p{line-height:1.55;color:#5b64
 .nav a{padding:8px 13px;border-radius:10px;background:#eef1f4;color:#17202a;text-decoration:none;font-size:13px;font-weight:700}
 .nav a:hover{background:#dde1e5}
 .evil .nav a{background:#fdecee;color:#7f1321}
+.mock-form{margin:20px 0;padding:20px;border:1px solid #e6b8bf;border-radius:16px;background:#fff7f8}
+.mock-form h2{margin:0 0 16px;font-size:18px}
+.mock-field{display:block;margin:12px 0;color:#5b6470;font-size:12px;font-weight:700}
+.mock-field input{display:block;width:100%;margin-top:6px;padding:12px 14px;border:1px solid #d8dde1;border-radius:10px;background:#fff;color:#424b54;font-size:15px}
+.mock-note{font-size:12px;color:#7f1321;margin:12px 0 0}
 @media(max-width:600px){.facts{grid-template-columns:1fr}.body{padding:24px}h1{font-size:28px}}
 </style>
 """
@@ -97,16 +102,42 @@ EVIL_PAGE = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
       <div class="fact"><b>Andere BSSID</b><code>{BSSID_EVIL}</code></div>
     </div>
 {NAV_HTML}
-    <span class="button">Anmeldefeld absichtlich gesperrt</span>
-    <div class="notice"><b>Demo-Schutz aktiv:</b> Es existiert kein Formular und es werden keinerlei Zugangsdaten angenommen oder gespeichert.</div>
+    <section class="mock-form">
+      <h2>Demo-Anmeldung</h2>
+      <label class="mock-field">E-Mail (festes Dummy-Konto)
+        <input type="text" value="student.demo@dhbw.local" readonly autocomplete="off" data-lpignore="true">
+      </label>
+      <label class="mock-field">Passwort (festes Dummy-Kennwort)
+        <input type="text" value="NUR-DEMO-KEINE-ECHTEN-DATEN" readonly autocomplete="off" data-lpignore="true">
+      </label>
+      <a class="button" href="/demo-freigegeben">Demo-Anmeldung bestätigen</a>
+      <p class="mock-note"><b>Nur Präsentation:</b> Die Felder sind schreibgeschützt. Beim Klick wird kein Formular und kein Passwort gesendet.</p>
+    </section>
+    <div class="notice"><b>Demo-Schutz aktiv:</b> Es gibt kein POST-Formular, kein Backend zur Anmeldung und keinerlei Credential-Speicherung.</div>
   </section>
   <footer class="footer">Präsentationssimulation · Sie zeigt das Risiko, ohne Credentials zu sammeln</footer>
+</main></body></html>"""
+
+EVIL_SUCCESS_PAGE = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Demo-Freigabe · Seminar-Gast</title>{PAGE_STYLE}</head>
+<body><main class="shell evil">
+  <header class="top"><span class="mark">WLAN</span><b>Seminar-Gast · Demo freigegeben</b></header>
+  <section class="body">
+    <p class="eyebrow">SIMULIERTE ANMELDUNG ABGESCHLOSSEN</p>
+    <h1>Demo-Zugang freigegeben.</h1>
+    <p>Der Browser hat nur die harmlose Seite <code>/demo-freigegeben</code> angefordert. Es wurden weder E-Mail noch Passwort übertragen.</p>
+    <div class="notice safe"><b>Sichtbar im Router-Log:</b> Router 2 sieht ausschließlich <code>GET /demo-freigegeben</code>.</div>
+{NAV_HTML}
+    <a class="button" href="/">Zurück zum Demo-Portal</a>
+  </section>
+  <footer class="footer">Präsentationssimulation · keine echten Zugangsdaten verarbeitet</footer>
 </main></body></html>"""
 
 ROUTER_HTTP_SCRIPT = """import datetime, http.server, pathlib, sys
 
 router_name, directory, logfile = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
 index_bytes = (directory / "index.html").read_bytes()
+success_bytes = (directory / "demo-freigegeben.html").read_bytes()
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -116,11 +147,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with logfile.open("a", encoding="utf-8") as f:
             f.write(line)
             f.flush()
+        body = success_bytes if self.path.startswith("/demo-freigegeben") else index_bytes
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(index_bytes)))
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(index_bytes)
+        self.wfile.write(body)
 
     def log_message(self, format, *args):
         return
@@ -522,6 +554,8 @@ def main():
     evil_dir.mkdir()
     (legit_dir / "index.html").write_text(LEGIT_PAGE, encoding="utf-8")
     (evil_dir / "index.html").write_text(EVIL_PAGE, encoding="utf-8")
+    (legit_dir / "demo-freigegeben.html").write_text(LEGIT_PAGE, encoding="utf-8")
+    (evil_dir / "demo-freigegeben.html").write_text(EVIL_SUCCESS_PAGE, encoding="utf-8")
     router_srv = tmpdir / "router_server.py"
     router_srv.write_text(ROUTER_HTTP_SCRIPT, encoding="utf-8")
     legit_log = tmpdir / "legit_http.log"

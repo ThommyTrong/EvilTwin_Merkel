@@ -81,8 +81,10 @@ Portal-Seite in einem zweiten Terminal manuell:
 sudo ip netns exec et_client firefox-esr http://10.0.0.1:8080
 ```
 
-Das simulierte Evil-Twin-Portal enthält absichtlich kein Formular. Es erklärt
-die Phishing-Gefahr, nimmt aber keine Zugangsdaten an.
+Das simulierte Evil-Twin-Portal enthält eine optische Demo-Anmeldung mit festen,
+schreibgeschützten Dummy-Werten. Der Button führt nur auf `/demo-freigegeben`
+und sendet keinen Benutzernamen und kein Passwort. Im Router-Log ist dadurch
+sichtbar, dass ausschließlich `GET /demo-freigegeben` ankommt.
 
 ## 6. Optional: Wireshark / PCAP mitlaufen lassen
 

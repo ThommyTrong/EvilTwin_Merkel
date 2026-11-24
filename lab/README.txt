@@ -28,7 +28,8 @@ Sicherheitsgrenzen der Demo:
   - Kein Deauthentication-Angriff: Der Wechsel wird absichtlich mit
     wpa_cli roam ausgelöst, damit nur der eigene virtuelle Client betroffen ist.
   - Keine DNS-Manipulation: Die Seite ist nur direkt über 10.0.0.1:8080 erreichbar.
-  - Keine Datenerfassung: Das Fake-Portal enthält absichtlich kein Eingabefeld.
+  - Keine Datenerfassung: Das Fake-Portal nutzt nur schreibgeschützte Dummy-
+    Werte. Der Demo-Button erzeugt ausschließlich GET /demo-freigegeben.
 
 Optional PCAP (zweites Terminal):
   sudo ip link set hwsim0 up
