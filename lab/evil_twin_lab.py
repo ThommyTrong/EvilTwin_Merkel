@@ -308,6 +308,11 @@ def show_status(if_client, kali_ui=False):
 
 def show_scan(if_client, kali_ui=False):
     if kali_ui:
+        if find_bin("nmcli"):
+            run(["nmcli", "device", "wifi", "rescan", "ifname", if_client], check=False, capture=True)
+            time.sleep(1.5)
+            print(f"\n$ nmcli -f IN-USE,SSID,BSSID,CHAN,SIGNAL dev wifi list ifname {if_client}")
+            print(run(["nmcli", "-f", "IN-USE,SSID,BSSID,CHAN,SIGNAL", "dev", "wifi", "list", "ifname", if_client], check=False, capture=True).stdout.strip())
         print(f"\n$ iw dev {if_client} scan | grep -E 'BSS|SSID|signal'")
         out = run(["iw", "dev", if_client, "scan"], check=False, capture=True).stdout
     else:
@@ -588,12 +593,21 @@ def main():
         )
 
         if args.kali_ui:
+            if find_bin("nmcli"):
+                run(["nmcli", "radio", "wifi", "on"], check=False, capture=True)
+                run(["nmcli", "device", "set", if_client, "managed", "yes"], check=False, capture=True)
+                deadline = time.time() + 8.0
+                while time.time() < deadline:
+                    run(["nmcli", "device", "wifi", "rescan", "ifname", if_client], check=False, capture=True)
+                    time.sleep(1.2)
+                    scan_out = run(["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list", "ifname", if_client], check=False, capture=True).stdout
+                    if SSID in scan_out:
+                        break
             print(
                 f"\n[*] Kali-UI-Modus aktiv! '{SSID}' ist jetzt über Interface '{if_client}'\n"
                 f"    direkt oben rechts in den Kali-WLAN-Einstellungen sichtbar.\n"
                 f"    Passwort (falls --mode wpa2/wpa3): {PASSWD}"
             )
-            time.sleep(1.5)
         else:
             print(f"[*] Verbinde virtuellen Client ({MAC_CLIENT}) mit {SSID}...")
             ns_cmd(NS_CLIENT, "ip", "addr", "replace", "10.0.0.10/24", "dev", if_client)
