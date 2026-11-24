@@ -292,12 +292,14 @@ def show_status(if_client, kali_ui=False):
     if kali_ui:
         print(f"\n$ iw dev {if_client} link")
         print(run(["iw", "dev", if_client, "link"], check=False, capture=True).stdout.strip())
+        print(f"\n$ ip -4 addr show dev {if_client}")
+        print(run(["ip", "-4", "-br", "addr", "show", "dev", if_client], check=False, capture=True).stdout.strip())
         print(f"\n$ nmcli -f IN-USE,SSID,BSSID,SIGNAL dev wifi list ifname {if_client}")
         if find_bin("nmcli"):
             print(run(["nmcli", "-f", "IN-USE,SSID,BSSID,SIGNAL", "dev", "wifi", "list", "ifname", if_client], check=False, capture=True).stdout.strip())
         print("\n$ curl -s http://10.0.0.1:8080 | grep -o '<title>[^<]*</title>'")
         out = run(["curl", "-s", "--max-time", "3", "http://10.0.0.1:8080"], check=False, capture=True).stdout
-        print(out[:240].strip() or "(Noch nicht verbunden — in den Kali-WLAN-Einstellungen mit 'Seminar-Gast' verbinden)")
+        print(out[:240].strip() or "(Noch nicht erreichbar — erst mit 'Seminar-Gast' verbinden, z. B. über [5] oder WLAN-Menü)")
         return
     print(f"\n$ ip netns exec {NS_CLIENT} iw dev {if_client} link")
     print(ns_cmd(NS_CLIENT, "iw", "dev", if_client, "link", check=False, capture=True).stdout.strip())
@@ -486,12 +488,14 @@ def roam_client(if_client, target_bssid, kali_ui=False, mode="wpa2"):
     show_status(if_client)
 
 
-def start_dhcp_only(ns, iface, dnsmasq_bin):
+def start_dhcp_only(ns, iface, dnsmasq_bin, log_path):
     # --port=0 deaktiviert DNS komplett (reiner DHCP-Server für NetworkManager)
     return subprocess.Popen(
         [
             "ip", "netns", "exec", ns, dnsmasq_bin,
             "--no-daemon",
+            "--pid-file=",
+            "--dhcp-authoritative",
             f"--interface={iface}",
             "--bind-interfaces",
             "--dhcp-range=10.0.0.50,10.0.0.150,12h",
@@ -499,8 +503,8 @@ def start_dhcp_only(ns, iface, dnsmasq_bin):
             "--port=0",
             "--leasefile-ro",
         ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=open(log_path, "w"),
+        stderr=subprocess.STDOUT,
     )
 
 
@@ -583,12 +587,12 @@ def main():
         time.sleep(1.5)
         ns_cmd(NS_LEGIT, "ip", "addr", "replace", "10.0.0.1/24", "dev", if_legit)
         if args.kali_ui:
-            procs.append(start_dhcp_only(NS_LEGIT, if_legit, dnsmasq_bin))
+            procs.append(start_dhcp_only(NS_LEGIT, if_legit, dnsmasq_bin, tmpdir / "dnsmasq_legit.log"))
         procs.append(
             subprocess.Popen(
                 ["ip", "netns", "exec", NS_LEGIT, "python3", str(router_srv), "ROUTER-1 :11", str(legit_dir), str(legit_log)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=open(tmpdir / "http_legit.err", "w"),
+                stderr=subprocess.STDOUT,
             )
         )
 
@@ -637,12 +641,12 @@ def main():
             time.sleep(1.5)
             ns_cmd(NS_EVIL, "ip", "addr", "replace", "10.0.0.1/24", "dev", if_evil)
             if args.kali_ui:
-                procs.append(start_dhcp_only(NS_EVIL, if_evil, dnsmasq_bin))
+                procs.append(start_dhcp_only(NS_EVIL, if_evil, dnsmasq_bin, tmpdir / "dnsmasq_evil.log"))
             procs.append(
                 subprocess.Popen(
                     ["ip", "netns", "exec", NS_EVIL, "python3", str(router_srv), "ROUTER-2 :22", str(evil_dir), str(evil_log)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    stdout=open(tmpdir / "http_evil.err", "w"),
+                    stderr=subprocess.STDOUT,
                 )
             )
             evil_started = True
@@ -681,6 +685,19 @@ def main():
             elif choice == "5":
                 roam_client(if_client, BSSID_REAL, kali_ui=args.kali_ui, mode=args.mode)
             elif choice == "6":
+                if args.kali_ui:
+                    link_out = run(["iw", "dev", if_client, "link"], check=False, capture=True).stdout
+                    ip_out = run(["ip", "-4", "-br", "addr", "show", "dev", if_client], check=False, capture=True).stdout
+                    if "Connected to" not in link_out:
+                        print("\n[!] Noch nicht mit 'Seminar-Gast' verbunden! Erst oben rechts im WLAN-Menü verbinden oder [5] drücken.")
+                        continue
+                    if "10.0.0." not in ip_out:
+                        print("\n[!] Verbunden, aber noch keine 10.0.0.x-IP per DHCP erhalten:")
+                        print("   ", ip_out.strip())
+                        dlog = tmpdir / "dnsmasq_legit.log"
+                        if dlog.exists():
+                            print("    dnsmasq:", dlog.read_text(encoding="utf-8").strip())
+                        continue
                 open_portal(kali_ui=args.kali_ui)
             elif choice == "7":
                 show_packet_trace()
