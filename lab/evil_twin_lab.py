@@ -308,6 +308,8 @@ def cleanup(procs, tmpdir):
             proc.kill()
     for ns in (NS_CLIENT, NS_EVIL, NS_LEGIT):
         run(["ip", "netns", "del", ns], check=False, capture=True)
+    for profile in ("ETLAB-Legit", "ETLAB-Evil"):
+        run(["nmcli", "connection", "delete", profile], check=False, capture=True)
     run(["modprobe", "-r", "mac80211_hwsim"], check=False, capture=True)
     shutil.rmtree(CTRL_DIR, ignore_errors=True)
     shutil.rmtree(tmpdir, ignore_errors=True)
@@ -542,14 +544,37 @@ def roam_client(if_client, target_bssid, kali_ui=False, mode="wpa2"):
         print(f"\n[*] Warte auf WLAN-Scan mit Ziel-BSSID {target_bssid}...")
         if not wait_for_nmcli_bssid(if_client, target_bssid):
             return
-        # NetworkManager reuses a generic SSID profile even when "bssid" was passed.
-        # Disconnecting first forces the following connection to honor the exact AP.
+        profile = "ETLAB-Legit" if target_bssid == BSSID_REAL else "ETLAB-Evil"
+        run(["nmcli", "connection", "delete", profile], check=False, capture=True)
+        add = [
+            "nmcli", "connection", "add", "type", "wifi",
+            "ifname", if_client,
+            "con-name", profile,
+            "ssid", SSID,
+            "802-11-wireless.bssid", target_bssid,
+            "ipv4.method", "auto",
+            "connection.autoconnect", "no",
+        ]
+        if mode == "open":
+            add += ["802-11-wireless-security.key-mgmt", "none"]
+        else:
+            add += [
+                "802-11-wireless-security.key-mgmt",
+                "sae" if mode == "wpa3" else "wpa-psk",
+                "802-11-wireless-security.psk",
+                PASSWD,
+            ]
+        print(f"\n$ {' '.join(add)}")
+        created = run(add, check=False, capture=True)
+        print(" ", created.stdout.strip())
+        if created.returncode != 0:
+            print("[!] Konnte BSSID-Profil nicht anlegen:")
+            print(created.stdout.strip())
+            return
         print(f"\n$ nmcli device disconnect {if_client}")
         dis = run(["nmcli", "device", "disconnect", if_client], check=False, capture=True)
         print(" ", dis.stdout.strip())
-        cmd = ["nmcli", "device", "wifi", "connect", SSID, "bssid", target_bssid, "ifname", if_client]
-        if mode != "open":
-            cmd += ["password", PASSWD]
+        cmd = ["nmcli", "connection", "up", profile, "ifname", if_client]
         print(f"\n$ {' '.join(cmd)}")
         res = run(cmd, check=False, capture=True)
         print(" ", res.stdout.strip())
