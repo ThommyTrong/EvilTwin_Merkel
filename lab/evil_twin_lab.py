@@ -555,9 +555,9 @@ def roam_client(if_client, target_bssid, kali_ui=False, mode="wpa2"):
             "ipv4.method", "auto",
             "connection.autoconnect", "no",
         ]
-        if mode == "open":
-            add += ["802-11-wireless-security.key-mgmt", "none"]
-        else:
+        if mode != "open":
+            # "key-mgmt none" would mean legacy WEP in NetworkManager, not "no security" —
+            # for an open network we must omit 802-11-wireless-security entirely.
             add += [
                 "802-11-wireless-security.key-mgmt",
                 "sae" if mode == "wpa3" else "wpa-psk",
