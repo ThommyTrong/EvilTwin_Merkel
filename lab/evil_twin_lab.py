@@ -14,6 +14,7 @@ Aufbau:
 
 import argparse
 import os
+import pwd
 import shutil
 import subprocess
 import sys
@@ -32,24 +33,60 @@ NS_EVIL = "et_evil"
 NS_CLIENT = "et_client"
 CTRL_DIR = "/run/wpa_supplicant_etlab"
 
-LEGIT_PAGE = """========================================
-  CAMPUS-PORTAL (LEGITIMER AP :11)
-========================================
-Netz:   Seminar-Gast
-BSSID:  02:00:00:00:00:11
-Status: Verbunden mit Campus-Access-Point
-Info:   Regulaerer Gastzugang ohne Konto-Login.
+PAGE_STYLE = """
+<style>
+:root{font-family:Inter,Arial,sans-serif;color:#17202a;background:#eef1f4}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:32px}
+.shell{width:min(760px,100%);background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 24px 70px #17202a24}
+.top{padding:22px 28px;color:#fff;background:#626b73;display:flex;align-items:center;gap:14px}
+.mark{font-weight:900;font-size:22px;letter-spacing:.06em}.evil .top{background:#a90016}
+.body{padding:34px}.eyebrow{margin:0 0 8px;color:#e2001a;font-weight:800;letter-spacing:.08em;font-size:13px}
+h1{margin:0 0 10px;font-size:34px;line-height:1.1}p{line-height:1.55;color:#5b6470}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:26px 0}
+.fact{padding:15px;border:1px solid #dde1e5;border-radius:14px;background:#f7f8f9}
+.fact b{display:block;font-size:12px;color:#6a727b;margin-bottom:5px}.fact code{font-size:15px}
+.button{display:block;width:100%;border:0;border-radius:12px;padding:16px;background:#5b6470;color:#fff;font-size:16px;font-weight:700;text-align:center}
+.evil .button{background:#e2001a}.notice{margin-top:20px;padding:15px 18px;border-radius:12px;background:#fdecee;color:#7f1321;font-size:14px}
+.safe{background:#e9f5ed;color:#17633a}.footer{padding:16px 28px;border-top:1px solid #e3e6e9;font-size:12px;color:#727b84}
+@media(max-width:600px){.facts{grid-template-columns:1fr}.body{padding:24px}h1{font-size:28px}}
+</style>
 """
 
-EVIL_PAGE = """========================================
-  [SIMULIERTES EVIL-TWIN-PORTAL :22]
-========================================
-Netz:   Seminar-Gast (identische SSID!)
-BSSID:  02:00:00:00:00:22
-Status: Verbunden mit ZWEITEM Access Point (Evil Twin)
-Hinweis: Ein Angreifer koennte hier ein Fake-Login
-         anzeigen. In dieser Demo wird nichts erfasst.
-"""
+LEGIT_PAGE = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Campus-Portal</title>{PAGE_STYLE}</head>
+<body><main class="shell">
+  <header class="top"><span class="mark">DHBW</span><b>Lörrach · Campus-Gastzugang</b></header>
+  <section class="body">
+    <p class="eyebrow">LEGITIMER ACCESS POINT</p>
+    <h1>Du bist mit dem Campus-Netz verbunden.</h1>
+    <p>Der Demonstrationszugang zeigt die harmlose Zielseite des echten Access Points.</p>
+    <div class="facts">
+      <div class="fact"><b>Netzwerk</b><code>{SSID}</code></div>
+      <div class="fact"><b>Verbunden mit BSSID</b><code>{BSSID_REAL}</code></div>
+    </div>
+    <span class="button">Internetfreigabe · Demo</span>
+    <div class="notice safe"><b>Keine Anmeldung nötig.</b> Es werden keine Daten abgefragt oder gespeichert.</div>
+  </section>
+  <footer class="footer">Virtuelles Labor · mac80211_hwsim · kein reales Funksignal</footer>
+</main></body></html>"""
+
+EVIL_PAGE = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Portal · Seminar-Gast</title>{PAGE_STYLE}</head>
+<body><main class="shell evil">
+  <header class="top"><span class="mark">WLAN</span><b>Seminar-Gast · Verbindungsprüfung</b></header>
+  <section class="body">
+    <p class="eyebrow">SIMULIERTES EVIL-TWIN-PORTAL</p>
+    <h1>Das Netzwerk heißt gleich. Der Betreiber nicht.</h1>
+    <p>Diese Seite gehört zum zweiten virtuellen Access Point. Im echten Angriff könnte an dieser Stelle ein täuschend echtes Login-Portal stehen.</p>
+    <div class="facts">
+      <div class="fact"><b>Identische SSID</b><code>{SSID}</code></div>
+      <div class="fact"><b>Andere BSSID</b><code>{BSSID_EVIL}</code></div>
+    </div>
+    <span class="button">Anmeldefeld absichtlich gesperrt</span>
+    <div class="notice"><b>Demo-Schutz aktiv:</b> Es existiert kein Formular und es werden keinerlei Zugangsdaten angenommen oder gespeichert.</div>
+  </section>
+  <footer class="footer">Präsentationssimulation · Sie zeigt das Risiko, ohne Credentials zu sammeln</footer>
+</main></body></html>"""
 
 
 def parse_args():
@@ -207,6 +244,103 @@ def show_scan(if_client):
             print(" ", line)
 
 
+def show_packet_trace():
+    if shutil.which("tshark") is None:
+        print("\n[!] tshark ist nicht installiert. Paketansicht überspringen.")
+        return
+    run(["ip", "link", "set", "hwsim0", "up"], check=False, capture=True)
+    print("\n[*] Erfasse 8 Sekunden virtuelle 802.11-Frames (nur lokal in mac80211_hwsim)...")
+    result = run(
+        [
+            "tshark",
+            "-i",
+            "hwsim0",
+            "-a",
+            "duration:8",
+            "-n",
+            "-Y",
+            "wlan.fc.type_subtype == 0x0008 || wlan.fc.type == 2",
+            "-T",
+            "fields",
+            "-e",
+            "frame.time_relative",
+            "-e",
+            "wlan.sa",
+            "-e",
+            "wlan.da",
+            "-e",
+            "wlan.fc.type_subtype",
+            "-e",
+            "frame.len",
+        ],
+        check=False,
+        capture=True,
+    )
+    output = (result.stdout or "").strip()
+    print(output or "[!] In diesem Zeitraum wurden keine passenden Frames angezeigt.")
+
+
+def browser_environment():
+    username = os.environ.get("SUDO_USER")
+    if not username or username == "root":
+        return None
+    user = pwd.getpwnam(username)
+    env = {
+        "HOME": user.pw_dir,
+        "USER": username,
+        "LOGNAME": username,
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+    }
+    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return username, env
+
+
+def open_portal():
+    browser = os.environ.get("EVILTWIN_BROWSER")
+    candidates = [browser] if browser else ["firefox-esr", "firefox", "chromium"]
+    executable = next((item for item in candidates if item and shutil.which(item)), None)
+    identity = browser_environment()
+    if executable is None:
+        print(
+            "\n[!] Kein Browser gefunden. Öffne im Kali-Gast manuell:\n"
+            "  http://10.0.0.1:8080\n"
+            "Hinweis: Der Browser muss im Namespace et_client laufen."
+        )
+        return
+    if identity is None:
+        print(
+            f"\n[!] Starte die Demo mit sudo und öffne danach in einem zweiten Terminal:\n"
+            f"  sudo ip netns exec {NS_CLIENT} {executable} http://10.0.0.1:8080"
+        )
+        return
+    username, env = identity
+    try:
+        subprocess.Popen(
+            [
+                "ip",
+                "netns",
+                "exec",
+                NS_CLIENT,
+                "sudo",
+                "-u",
+                username,
+                "env",
+                *[f"{key}={value}" for key, value in env.items()],
+                executable,
+                "--new-window",
+                "http://10.0.0.1:8080",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        print("\n[*] Browser im virtuellen Client-Netzwerk geöffnet.")
+    except OSError as exc:
+        print(f"\n[!] Browser konnte nicht gestartet werden: {exc}")
+
+
 def roam_client(if_client, target_bssid):
     print(f"\n$ ip netns exec {NS_CLIENT} wpa_cli -p {CTRL_DIR} -i {if_client} roam {target_bssid}")
     res = ns_cmd(NS_CLIENT, "wpa_cli", "-p", CTRL_DIR, "-i", if_client, "roam", target_bssid, check=False, capture=True)
@@ -335,6 +469,8 @@ def main():
                 "  [3] Evil Twin (:22) starten\n"
                 "  [4] Client auf Evil Twin (:22) wechseln & Portal zeigen\n"
                 "  [5] Zurück zum legitimen Campus-AP (:11)\n"
+                "  [6] Portal im Browser des virtuellen Clients öffnen\n"
+                "  [7] 8 Sekunden virtuelle 802.11-Pakete anzeigen\n"
                 "  [q] Beenden & aufräumen"
             )
             try:
@@ -352,6 +488,10 @@ def main():
                 roam_client(if_client, BSSID_EVIL)
             elif choice == "5":
                 roam_client(if_client, BSSID_REAL)
+            elif choice == "6":
+                open_portal()
+            elif choice == "7":
+                show_packet_trace()
             elif choice == "q":
                 break
     finally:

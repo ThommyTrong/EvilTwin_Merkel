@@ -5,7 +5,7 @@ Diese Demo erzeugt 3 virtuelle Wi-Fi-Radios direkt im Linux-Kernel
 Es werden keine realen Funkframes nach außen gesendet.
 
 Einmalig installieren (Kali/Ubuntu/Debian):
-  sudo apt update && sudo apt install -y hostapd wpasupplicant iw iproute2 curl tshark
+  sudo apt update && sudo apt install -y hostapd wpasupplicant iw iproute2 curl tshark firefox-esr
 
 Start (Standard WPA2, optional --mode wpa3 oder --mode open):
   sudo python3 lab/evil_twin_lab.py
@@ -15,9 +15,21 @@ Ablauf im interaktiven Menü:
   [3] Evil Twin (:22) mit derselben SSID 'Seminar-Gast' starten
   [2] WLAN-Scan zeigen (beide 'Seminar-Gast' APs sichtbar)
   [4] Client auf Evil Twin (:22) wechseln -> dieselbe URL zeigt Fake-Portal
+  [6] Browser im virtuellen Client-Netzwerk mit grafischem Portal öffnen
+  [7] 8 Sekunden echte virtuelle 802.11-Pakete über tshark anzeigen
+
+Sicherheitsgrenzen der Demo:
+  - Kein Deauthentication-Angriff: Der Wechsel wird absichtlich mit
+    wpa_cli roam ausgelöst, damit nur der eigene virtuelle Client betroffen ist.
+  - Keine DNS-Manipulation: Die Seite ist nur direkt über 10.0.0.1:8080 erreichbar.
+  - Keine Datenerfassung: Das Fake-Portal enthält absichtlich kein Eingabefeld.
 
 Optional PCAP (zweites Terminal):
   sudo ip link set hwsim0 up
   sudo tshark -i hwsim0 -w lab_demo.pcapng
+
+Browser manuell öffnen (falls die Menüoption wegen Wayland/Display-Setup
+nicht funktioniert):
+  sudo ip netns exec et_client firefox-esr http://10.0.0.1:8080
 
 Siehe VIRTUELLE_DEMO_ANLEITUNG.md.
