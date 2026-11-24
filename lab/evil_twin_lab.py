@@ -150,6 +150,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = success_bytes if self.path.startswith("/demo-freigegeben") else index_bytes
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -416,24 +419,25 @@ def open_portal(kali_ui=False):
     candidates = [browser] if browser else ["firefox-esr", "firefox", "chromium"]
     executable = next((item for item in candidates if item and shutil.which(item)), None)
     identity = browser_environment()
+    portal_url = f"http://10.0.0.1:8080/?presentation={time.time_ns()}"
     if executable is None:
         print(
             "\n[!] Kein Browser gefunden. Öffne im Kali-Gast manuell:\n"
-            "  http://10.0.0.1:8080"
+            f"  {portal_url}"
         )
         return
     if identity is None:
         prefix = "" if kali_ui else f"sudo ip netns exec {NS_CLIENT} "
         print(
             f"\n[!] Starte die Demo mit sudo und öffne danach in einem zweiten Terminal:\n"
-            f"  {prefix}{executable} http://10.0.0.1:8080"
+            f"  {prefix}{executable} {portal_url}"
         )
         return
     username, env = identity
     cmd = (
-        ["sudo", "-u", username, "env", *[f"{key}={value}" for key, value in env.items()], executable, "--new-window", "http://10.0.0.1:8080"]
+        ["sudo", "-u", username, "env", *[f"{key}={value}" for key, value in env.items()], executable, "--new-window", portal_url]
         if kali_ui
-        else ["ip", "netns", "exec", NS_CLIENT, "sudo", "-u", username, "env", *[f"{key}={value}" for key, value in env.items()], executable, "--new-window", "http://10.0.0.1:8080"]
+        else ["ip", "netns", "exec", NS_CLIENT, "sudo", "-u", username, "env", *[f"{key}={value}" for key, value in env.items()], executable, "--new-window", portal_url]
     )
     try:
         subprocess.Popen(
@@ -442,7 +446,7 @@ def open_portal(kali_ui=False):
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        print("\n[*] Browser geöffnet auf http://10.0.0.1:8080.")
+        print(f"\n[*] Browser ohne Cache geöffnet: {portal_url}")
     except OSError as exc:
         print(f"\n[!] Browser konnte nicht gestartet werden: {exc}")
 
