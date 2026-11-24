@@ -139,6 +139,11 @@ def parse_args():
         default="wpa2",
         help="Sicherheitsmodus der virtuellen APs (Standard: wpa2).",
     )
+    parser.add_argument(
+        "--kali-ui",
+        action="store_true",
+        help="Client-Radio im Hauptsystem lassen (sichtbar in den Kali-WLAN-Einstellungen).",
+    )
     return parser.parse_args()
 
 
@@ -156,14 +161,30 @@ def ns_cmd(ns, *args, check=True, capture=False):
     return run(["ip", "netns", "exec", ns, *args], check=check, capture=capture)
 
 
-def check_dependencies():
-    needed = ["ip", "iw", "hostapd", "wpa_supplicant", "wpa_cli", "curl"]
-    missing = [tool for tool in needed if shutil.which(tool) is None]
+def find_bin(name):
+    found = shutil.which(name)
+    if found:
+        return found
+    for prefix in ("/usr/sbin", "/sbin", "/usr/bin", "/bin"):
+        candidate = Path(prefix) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def check_dependencies(kali_ui=False):
+    needed = ["ip", "iw", "hostapd", "curl"]
+    if kali_ui:
+        needed.append("dnsmasq")
+    else:
+        needed += ["wpa_supplicant", "wpa_cli"]
+    missing = [tool for tool in needed if find_bin(tool) is None]
     if missing:
+        pkg = "dnsmasq-base" if "dnsmasq" in missing else "wpasupplicant"
         sys.exit(
             f"Fehlende Tools: {', '.join(missing)}\n"
             "Installieren mit:\n"
-            "  sudo apt update && sudo apt install -y hostapd wpasupplicant iw iproute2 curl"
+            f"  sudo apt update && sudo apt install -y hostapd {pkg} iw iproute2 curl"
         )
 
 
@@ -267,7 +288,17 @@ def wait_connected(if_client, timeout=8.0):
         time.sleep(0.4)
 
 
-def show_status(if_client):
+def show_status(if_client, kali_ui=False):
+    if kali_ui:
+        print(f"\n$ iw dev {if_client} link")
+        print(run(["iw", "dev", if_client, "link"], check=False, capture=True).stdout.strip())
+        print(f"\n$ nmcli -f IN-USE,SSID,BSSID,SIGNAL dev wifi list ifname {if_client}")
+        if find_bin("nmcli"):
+            print(run(["nmcli", "-f", "IN-USE,SSID,BSSID,SIGNAL", "dev", "wifi", "list", "ifname", if_client], check=False, capture=True).stdout.strip())
+        print("\n$ curl -s http://10.0.0.1:8080 | grep -o '<title>[^<]*</title>'")
+        out = run(["curl", "-s", "--max-time", "3", "http://10.0.0.1:8080"], check=False, capture=True).stdout
+        print(out[:240].strip() or "(Noch nicht verbunden — in den Kali-WLAN-Einstellungen mit 'Seminar-Gast' verbinden)")
+        return
     print(f"\n$ ip netns exec {NS_CLIENT} iw dev {if_client} link")
     print(ns_cmd(NS_CLIENT, "iw", "dev", if_client, "link", check=False, capture=True).stdout.strip())
     print(f"\n$ ip netns exec {NS_CLIENT} curl -s http://10.0.0.1:8080")
@@ -275,9 +306,13 @@ def show_status(if_client):
     print(out.strip() or "(Keine Antwort — ggf. kurz warten und erneut probieren)")
 
 
-def show_scan(if_client):
-    print(f"\n$ ip netns exec {NS_CLIENT} iw dev {if_client} scan | grep -E 'BSS|SSID|signal'")
-    out = ns_cmd(NS_CLIENT, "iw", "dev", if_client, "scan", check=False, capture=True).stdout
+def show_scan(if_client, kali_ui=False):
+    if kali_ui:
+        print(f"\n$ iw dev {if_client} scan | grep -E 'BSS|SSID|signal'")
+        out = run(["iw", "dev", if_client, "scan"], check=False, capture=True).stdout
+    else:
+        print(f"\n$ ip netns exec {NS_CLIENT} iw dev {if_client} scan | grep -E 'BSS|SSID|signal'")
+        out = ns_cmd(NS_CLIENT, "iw", "dev", if_client, "scan", check=False, capture=True).stdout
     for line in out.splitlines():
         s = line.strip()
         if s.startswith(("BSS ", "SSID:", "signal:")):
@@ -337,7 +372,7 @@ def browser_environment():
     return username, env
 
 
-def open_portal():
+def open_portal(kali_ui=False):
     browser = os.environ.get("EVILTWIN_BROWSER")
     candidates = [browser] if browser else ["firefox-esr", "firefox", "chromium"]
     executable = next((item for item in candidates if item and shutil.which(item)), None)
@@ -345,38 +380,30 @@ def open_portal():
     if executable is None:
         print(
             "\n[!] Kein Browser gefunden. Öffne im Kali-Gast manuell:\n"
-            "  http://10.0.0.1:8080\n"
-            "Hinweis: Der Browser muss im Namespace et_client laufen."
+            "  http://10.0.0.1:8080"
         )
         return
     if identity is None:
+        prefix = "" if kali_ui else f"sudo ip netns exec {NS_CLIENT} "
         print(
             f"\n[!] Starte die Demo mit sudo und öffne danach in einem zweiten Terminal:\n"
-            f"  sudo ip netns exec {NS_CLIENT} {executable} http://10.0.0.1:8080"
+            f"  {prefix}{executable} http://10.0.0.1:8080"
         )
         return
     username, env = identity
+    cmd = (
+        ["sudo", "-u", username, "env", *[f"{key}={value}" for key, value in env.items()], executable, "--new-window", "http://10.0.0.1:8080"]
+        if kali_ui
+        else ["ip", "netns", "exec", NS_CLIENT, "sudo", "-u", username, "env", *[f"{key}={value}" for key, value in env.items()], executable, "--new-window", "http://10.0.0.1:8080"]
+    )
     try:
         subprocess.Popen(
-            [
-                "ip",
-                "netns",
-                "exec",
-                NS_CLIENT,
-                "sudo",
-                "-u",
-                username,
-                "env",
-                *[f"{key}={value}" for key, value in env.items()],
-                executable,
-                "--new-window",
-                "http://10.0.0.1:8080",
-            ],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        print("\n[*] Browser im virtuellen Client-Netzwerk geöffnet.")
+        print("\n[*] Browser geöffnet auf http://10.0.0.1:8080.")
     except OSError as exc:
         print(f"\n[!] Browser konnte nicht gestartet werden: {exc}")
 
@@ -431,7 +458,21 @@ def live_router_monitor(legit_log, evil_log):
         print("\n[*] Live-Monitor beendet, zurück zum Menü.")
 
 
-def roam_client(if_client, target_bssid):
+def roam_client(if_client, target_bssid, kali_ui=False, mode="wpa2"):
+    if kali_ui:
+        if not find_bin("nmcli"):
+            print("\n[!] nmcli nicht gefunden — bitte in den Kali-WLAN-Einstellungen wechseln.")
+            return
+        cmd = ["nmcli", "device", "wifi", "connect", SSID, "bssid", target_bssid, "ifname", if_client]
+        if mode != "open":
+            cmd += ["password", PASSWD]
+        print(f"\n$ {' '.join(cmd)}")
+        res = run(cmd, check=False, capture=True)
+        print(" ", res.stdout.strip())
+        time.sleep(2)
+        run(["ip", "neigh", "flush", "dev", if_client], check=False, capture=True)
+        show_status(if_client, kali_ui=True)
+        return
     print(f"\n$ ip netns exec {NS_CLIENT} wpa_cli -p {CTRL_DIR} -i {if_client} roam {target_bssid}")
     res = ns_cmd(NS_CLIENT, "wpa_cli", "-p", CTRL_DIR, "-i", if_client, "roam", target_bssid, check=False, capture=True)
     print(" ", res.stdout.strip())
@@ -440,11 +481,30 @@ def roam_client(if_client, target_bssid):
     show_status(if_client)
 
 
+def start_dhcp_only(ns, iface, dnsmasq_bin):
+    # --port=0 deaktiviert DNS komplett (reiner DHCP-Server für NetworkManager)
+    return subprocess.Popen(
+        [
+            "ip", "netns", "exec", ns, dnsmasq_bin,
+            "--no-daemon",
+            f"--interface={iface}",
+            "--bind-interfaces",
+            "--dhcp-range=10.0.0.50,10.0.0.150,12h",
+            "--dhcp-option=3,10.0.0.1",
+            "--port=0",
+            "--leasefile-ro",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def main():
     args = parse_args()
     if os.geteuid() != 0:
         sys.exit("Bitte mit sudo ausführen: sudo python3 lab/evil_twin_lab.py")
-    check_dependencies()
+    check_dependencies(kali_ui=args.kali_ui)
+    dnsmasq_bin = find_bin("dnsmasq") if args.kali_ui else None
 
     tmpdir = Path(tempfile.mkdtemp(prefix="eviltwin_lab_"))
     legit_dir = tmpdir / "legit"
@@ -474,23 +534,31 @@ def main():
         if len(phys) < 3:
             sys.exit(f"Erwartet 3 mac80211_hwsim Radios, gefunden: {phys}")
 
-        for ns, phy in zip((NS_LEGIT, NS_EVIL, NS_CLIENT), phys[:3]):
+        ns_targets = (NS_LEGIT, NS_EVIL) if args.kali_ui else (NS_LEGIT, NS_EVIL, NS_CLIENT)
+        for ns, phy in zip(ns_targets, phys):
             run(["ip", "netns", "add", ns])
             ns_cmd(ns, "ip", "link", "set", "lo", "up")
             run(["iw", "phy", phy, "set", "netns", "name", ns])
 
         if_legit = iface_in_ns(NS_LEGIT)
         if_evil = iface_in_ns(NS_EVIL)
-        if_client = iface_in_ns(NS_CLIENT)
+        if args.kali_ui:
+            # Das 3. Radio bleibt im Hauptsystem, damit Kali/NetworkManager es im WLAN-Menü sieht
+            if_client = sorted((Path("/sys/class/ieee80211") / phys[2] / "device" / "net").iterdir())[0].name
+        else:
+            if_client = iface_in_ns(NS_CLIENT)
 
         for ns, iface, mac in (
             (NS_LEGIT, if_legit, BSSID_REAL),
             (NS_EVIL, if_evil, BSSID_EVIL),
-            (NS_CLIENT, if_client, MAC_CLIENT),
         ):
             ns_cmd(ns, "ip", "link", "set", iface, "down")
             ns_cmd(ns, "ip", "link", "set", iface, "address", mac)
             ns_cmd(ns, "ip", "link", "set", iface, "up")
+        if not args.kali_ui:
+            ns_cmd(NS_CLIENT, "ip", "link", "set", if_client, "down")
+            ns_cmd(NS_CLIENT, "ip", "link", "set", if_client, "address", MAC_CLIENT)
+            ns_cmd(NS_CLIENT, "ip", "link", "set", if_client, "up")
 
         conf_legit = tmpdir / "hostapd_legit.conf"
         conf_evil = tmpdir / "hostapd_evil.conf"
@@ -509,6 +577,8 @@ def main():
         )
         time.sleep(1.5)
         ns_cmd(NS_LEGIT, "ip", "addr", "replace", "10.0.0.1/24", "dev", if_legit)
+        if args.kali_ui:
+            procs.append(start_dhcp_only(NS_LEGIT, if_legit, dnsmasq_bin))
         procs.append(
             subprocess.Popen(
                 ["ip", "netns", "exec", NS_LEGIT, "python3", str(router_srv), "ROUTER-1 :11", str(legit_dir), str(legit_log)],
@@ -517,16 +587,24 @@ def main():
             )
         )
 
-        print(f"[*] Verbinde virtuellen Client ({MAC_CLIENT}) mit {SSID}...")
-        ns_cmd(NS_CLIENT, "ip", "addr", "replace", "10.0.0.10/24", "dev", if_client)
-        procs.append(
-            subprocess.Popen(
-                ["ip", "netns", "exec", NS_CLIENT, "wpa_supplicant", "-D", "nl80211", "-i", if_client, "-c", str(conf_wpa)],
-                stdout=open(tmpdir / "client.log", "w"),
-                stderr=subprocess.STDOUT,
+        if args.kali_ui:
+            print(
+                f"\n[*] Kali-UI-Modus aktiv! '{SSID}' ist jetzt über Interface '{if_client}'\n"
+                f"    direkt oben rechts in den Kali-WLAN-Einstellungen sichtbar.\n"
+                f"    Passwort (falls --mode wpa2/wpa3): {PASSWD}"
             )
-        )
-        wait_connected(if_client)
+            time.sleep(1.5)
+        else:
+            print(f"[*] Verbinde virtuellen Client ({MAC_CLIENT}) mit {SSID}...")
+            ns_cmd(NS_CLIENT, "ip", "addr", "replace", "10.0.0.10/24", "dev", if_client)
+            procs.append(
+                subprocess.Popen(
+                    ["ip", "netns", "exec", NS_CLIENT, "wpa_supplicant", "-D", "nl80211", "-i", if_client, "-c", str(conf_wpa)],
+                    stdout=open(tmpdir / "client.log", "w"),
+                    stderr=subprocess.STDOUT,
+                )
+            )
+            wait_connected(if_client)
 
         evil_started = False
 
@@ -544,6 +622,8 @@ def main():
             )
             time.sleep(1.5)
             ns_cmd(NS_EVIL, "ip", "addr", "replace", "10.0.0.1/24", "dev", if_evil)
+            if args.kali_ui:
+                procs.append(start_dhcp_only(NS_EVIL, if_evil, dnsmasq_bin))
             procs.append(
                 subprocess.Popen(
                     ["ip", "netns", "exec", NS_EVIL, "python3", str(router_srv), "ROUTER-2 :22", str(evil_dir), str(evil_log)],
@@ -555,7 +635,7 @@ def main():
             print("[*] Evil Twin läuft.")
 
         print("\n=== Virtuelle Evil-Twin-Demo bereit (kein reales Funksignal) ===")
-        show_status(if_client)
+        show_status(if_client, kali_ui=args.kali_ui)
 
         while True:
             print(
@@ -565,7 +645,7 @@ def main():
                 "  [3] Evil Twin (:22) starten\n"
                 "  [4] Client auf Evil Twin (:22) wechseln & Portal zeigen\n"
                 "  [5] Zurück zum legitimen Campus-AP (:11)\n"
-                "  [6] Portal im Browser des virtuellen Clients öffnen\n"
+                "  [6] Portal im Browser öffnen (http://10.0.0.1:8080)\n"
                 "  [7] 8 Sekunden virtuelle 802.11-Pakete anzeigen\n"
                 "  [8] Router-Sicht anzeigen (Clients + HTTP-Logs von Router 1 & 2)\n"
                 "  [9] Live-Monitor (Router-Traffic in Echtzeit mitlesen)\n"
@@ -576,18 +656,18 @@ def main():
             except (EOFError, KeyboardInterrupt):
                 break
             if choice == "1":
-                show_status(if_client)
+                show_status(if_client, kali_ui=args.kali_ui)
             elif choice == "2":
-                show_scan(if_client)
+                show_scan(if_client, kali_ui=args.kali_ui)
             elif choice == "3":
                 start_evil()
             elif choice == "4":
                 start_evil()
-                roam_client(if_client, BSSID_EVIL)
+                roam_client(if_client, BSSID_EVIL, kali_ui=args.kali_ui, mode=args.mode)
             elif choice == "5":
-                roam_client(if_client, BSSID_REAL)
+                roam_client(if_client, BSSID_REAL, kali_ui=args.kali_ui, mode=args.mode)
             elif choice == "6":
-                open_portal()
+                open_portal(kali_ui=args.kali_ui)
             elif choice == "7":
                 show_packet_trace()
             elif choice == "8":

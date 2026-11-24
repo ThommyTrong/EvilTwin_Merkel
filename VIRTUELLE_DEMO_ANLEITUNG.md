@@ -46,10 +46,13 @@ cd EvilTwin_Merkel
 ## 3. Demo starten
 
 ```bash
-sudo python3 lab/evil_twin_lab.py               # Standard: WPA2 (PMF aus)
-sudo python3 lab/evil_twin_lab.py --mode wpa3   # Vergleich: WPA3 + PMF
-sudo python3 lab/evil_twin_lab.py --mode open   # Offenes Gast-WLAN
+sudo -E python3 lab/evil_twin_lab.py --kali-ui               # Sichtbar in den Kali-WLAN-Einstellungen!
+sudo -E python3 lab/evil_twin_lab.py --kali-ui --mode open   # Ohne Passwort zum schnellen Einloggen
+sudo python3 lab/evil_twin_lab.py                            # Standard: isolierter Client-Namespace (WPA2)
+sudo python3 lab/evil_twin_lab.py --mode wpa3                # Vergleich: WPA3 + PMF
 ```
+
+> **Tipp (`--kali-ui`):** Im `--kali-ui`-Modus bleibt die dritte virtuelle WLAN-Karte im Hauptsystem (`dnsmasq-base` nötig für DHCP: `sudo apt install -y dnsmasq-base`). Damit erscheint `Seminar-Gast` direkt oben rechts in den echten **Kali-WLAN-Einstellungen**, und du kannst dich ganz normal über die Oberfläche einloggen und in deinem normalen Firefox `http://10.0.0.1:8080` öffnen.
 
 ## 4. Ablauf im interaktiven Demo-Menü
 

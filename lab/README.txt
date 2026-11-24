@@ -10,6 +10,10 @@ Einmalig installieren (Kali/Ubuntu/Debian):
 Start (Standard WPA2, optional --mode wpa3 oder --mode open):
   sudo python3 lab/evil_twin_lab.py
 
+Mit Kali-WLAN-Einstellungen oben rechts (--kali-ui, benötigt dnsmasq-base):
+  sudo apt install -y dnsmasq-base
+  sudo -E python3 lab/evil_twin_lab.py --kali-ui
+
 Ablauf im interaktiven Menü:
   [1] Status & Zielseite zeigen (verbunden mit Campus-AP :11)
   [3] Evil Twin (:22) mit derselben SSID 'Seminar-Gast' starten
