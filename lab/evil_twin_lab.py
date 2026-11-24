@@ -181,6 +181,15 @@ def cleanup(procs, tmpdir):
     print("[*] Fertig.")
 
 
+def wait_connected(if_client, timeout=8.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        out = ns_cmd(NS_CLIENT, "iw", "dev", if_client, "link", check=False, capture=True).stdout
+        if "Connected to" in out:
+            return
+        time.sleep(0.4)
+
+
 def show_status(if_client):
     print(f"\n$ ip netns exec {NS_CLIENT} iw dev {if_client} link")
     print(ns_cmd(NS_CLIENT, "iw", "dev", if_client, "link", check=False, capture=True).stdout.strip())
@@ -287,7 +296,7 @@ def main():
                 stderr=subprocess.STDOUT,
             )
         )
-        time.sleep(3)
+        wait_connected(if_client)
 
         evil_started = False
 
