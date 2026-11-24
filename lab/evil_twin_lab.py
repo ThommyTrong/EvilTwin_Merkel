@@ -48,8 +48,21 @@ h1{margin:0 0 10px;font-size:34px;line-height:1.1}p{line-height:1.55;color:#5b64
 .button{display:block;width:100%;border:0;border-radius:12px;padding:16px;background:#5b6470;color:#fff;font-size:16px;font-weight:700;text-align:center}
 .evil .button{background:#e2001a}.notice{margin-top:20px;padding:15px 18px;border-radius:12px;background:#fdecee;color:#7f1321;font-size:14px}
 .safe{background:#e9f5ed;color:#17633a}.footer{padding:16px 28px;border-top:1px solid #e3e6e9;font-size:12px;color:#727b84}
+.nav{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 6px}
+.nav a{padding:8px 13px;border-radius:10px;background:#eef1f4;color:#17202a;text-decoration:none;font-size:13px;font-weight:700}
+.nav a:hover{background:#dde1e5}
+.evil .nav a{background:#fdecee;color:#7f1321}
 @media(max-width:600px){.facts{grid-template-columns:1fr}.body{padding:24px}h1{font-size:28px}}
 </style>
+"""
+
+NAV_HTML = """
+    <nav class="nav">
+      <a href="/">Startseite</a>
+      <a href="/stundenplan">Stundenplan</a>
+      <a href="/mensa">Mensa-Plan</a>
+      <a href="/news">Campus-News</a>
+    </nav>
 """
 
 LEGIT_PAGE = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
@@ -57,13 +70,14 @@ LEGIT_PAGE = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
 <body><main class="shell">
   <header class="top"><span class="mark">DHBW</span><b>Lörrach · Campus-Gastzugang</b></header>
   <section class="body">
-    <p class="eyebrow">LEGITIMER ACCESS POINT</p>
+    <p class="eyebrow">LEGITIMER ACCESS POINT (ROUTER 1)</p>
     <h1>Du bist mit dem Campus-Netz verbunden.</h1>
-    <p>Der Demonstrationszugang zeigt die harmlose Zielseite des echten Access Points.</p>
+    <p>Der Demonstrationszugang zeigt die harmlose Zielseite des echten Access Points. Klicke unten auf einen Link, um im Router-Log zu sehen, was dein Client aufruft.</p>
     <div class="facts">
       <div class="fact"><b>Netzwerk</b><code>{SSID}</code></div>
       <div class="fact"><b>Verbunden mit BSSID</b><code>{BSSID_REAL}</code></div>
     </div>
+{NAV_HTML}
     <span class="button">Internetfreigabe · Demo</span>
     <div class="notice safe"><b>Keine Anmeldung nötig.</b> Es werden keine Daten abgefragt oder gespeichert.</div>
   </section>
@@ -75,18 +89,44 @@ EVIL_PAGE = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
 <body><main class="shell evil">
   <header class="top"><span class="mark">WLAN</span><b>Seminar-Gast · Verbindungsprüfung</b></header>
   <section class="body">
-    <p class="eyebrow">SIMULIERTES EVIL-TWIN-PORTAL</p>
+    <p class="eyebrow">SIMULIERTES EVIL-TWIN-PORTAL (ROUTER 2)</p>
     <h1>Das Netzwerk heißt gleich. Der Betreiber nicht.</h1>
-    <p>Diese Seite gehört zum zweiten virtuellen Access Point. Im echten Angriff könnte an dieser Stelle ein täuschend echtes Login-Portal stehen.</p>
+    <p>Diese Seite gehört zum zweiten virtuellen Access Point. Klicke unten auf einen Link: Router 2 protokolliert jetzt jede Anfrage deines Browsers.</p>
     <div class="facts">
       <div class="fact"><b>Identische SSID</b><code>{SSID}</code></div>
       <div class="fact"><b>Andere BSSID</b><code>{BSSID_EVIL}</code></div>
     </div>
+{NAV_HTML}
     <span class="button">Anmeldefeld absichtlich gesperrt</span>
     <div class="notice"><b>Demo-Schutz aktiv:</b> Es existiert kein Formular und es werden keinerlei Zugangsdaten angenommen oder gespeichert.</div>
   </section>
   <footer class="footer">Präsentationssimulation · Sie zeigt das Risiko, ohne Credentials zu sammeln</footer>
 </main></body></html>"""
+
+ROUTER_HTTP_SCRIPT = """import datetime, http.server, pathlib, sys
+
+router_name, directory, logfile = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+index_bytes = (directory / "index.html").read_bytes()
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        ua = self.headers.get("User-Agent", "-")
+        line = f"[{ts}] [{router_name}] {self.client_address[0]} -> GET {self.path} | UA: {ua[:48]}\\n"
+        with logfile.open("a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(index_bytes)))
+        self.end_headers()
+        self.wfile.write(index_bytes)
+
+    def log_message(self, format, *args):
+        return
+
+http.server.ThreadingHTTPServer(("10.0.0.1", 8080), Handler).serve_forever()
+"""
 
 
 def parse_args():
@@ -341,6 +381,56 @@ def open_portal():
         print(f"\n[!] Browser konnte nicht gestartet werden: {exc}")
 
 
+def show_router_view(if_legit, if_evil, legit_log, evil_log, evil_started):
+    print("\n=== Router-Sicht: Verbundene Clients & HTTP-Log ===")
+    for label, ns, iface, log_path, active in (
+        (f"ROUTER 1 (Legitimer AP {BSSID_REAL})", NS_LEGIT, if_legit, legit_log, True),
+        (f"ROUTER 2 (Evil Twin   {BSSID_EVIL})", NS_EVIL, if_evil, evil_log, evil_started),
+    ):
+        print(f"\n--- {label} ---")
+        if not active:
+            print("  Status: Noch nicht gestartet (erst [3] oder [4] wählen).")
+            continue
+        st = ns_cmd(ns, "iw", "dev", iface, "station", "dump", check=False, capture=True).stdout.strip()
+        if "Station " in st:
+            for line in st.splitlines():
+                s = line.strip()
+                if s.startswith(("Station ", "rx packets:", "tx packets:", "signal:")):
+                    print(" ", s)
+        else:
+            print("  Verbundene Clients: (keiner)")
+        lines = log_path.read_text(encoding="utf-8").splitlines() if log_path.exists() else []
+        print("  Letzte HTTP-Anfragen an diesen Router:")
+        if lines:
+            for line in lines[-8:]:
+                print("   ", line)
+        else:
+            print("    (noch keine Anfragen)")
+
+
+def live_router_monitor(legit_log, evil_log):
+    print("\n=== Live-Monitor: Traffic auf Router 1 (:11) & Router 2 (:22) ===")
+    print("Klicke im Browser auf Links oder öffne Seiten. Beenden mit Strg+C.\n")
+    pos = {legit_log: legit_log.stat().st_size if legit_log.exists() else 0,
+           evil_log: evil_log.stat().st_size if evil_log.exists() else 0}
+    try:
+        while True:
+            for path in (legit_log, evil_log):
+                if not path.exists():
+                    continue
+                size = path.stat().st_size
+                if size > pos[path]:
+                    with path.open("r", encoding="utf-8") as f:
+                        f.seek(pos[path])
+                        chunk = f.read()
+                    pos[path] = size
+                    for line in chunk.splitlines():
+                        print(" ", line)
+            time.sleep(0.3)
+    except KeyboardInterrupt:
+        print("\n[*] Live-Monitor beendet, zurück zum Menü.")
+
+
 def roam_client(if_client, target_bssid):
     print(f"\n$ ip netns exec {NS_CLIENT} wpa_cli -p {CTRL_DIR} -i {if_client} roam {target_bssid}")
     res = ns_cmd(NS_CLIENT, "wpa_cli", "-p", CTRL_DIR, "-i", if_client, "roam", target_bssid, check=False, capture=True)
@@ -363,6 +453,12 @@ def main():
     evil_dir.mkdir()
     (legit_dir / "index.html").write_text(LEGIT_PAGE, encoding="utf-8")
     (evil_dir / "index.html").write_text(EVIL_PAGE, encoding="utf-8")
+    router_srv = tmpdir / "router_server.py"
+    router_srv.write_text(ROUTER_HTTP_SCRIPT, encoding="utf-8")
+    legit_log = tmpdir / "legit_http.log"
+    evil_log = tmpdir / "evil_http.log"
+    legit_log.touch()
+    evil_log.touch()
 
     procs = []
     try:
@@ -415,7 +511,7 @@ def main():
         ns_cmd(NS_LEGIT, "ip", "addr", "replace", "10.0.0.1/24", "dev", if_legit)
         procs.append(
             subprocess.Popen(
-                ["ip", "netns", "exec", NS_LEGIT, "python3", "-m", "http.server", "8080", "--bind", "10.0.0.1", "--directory", str(legit_dir)],
+                ["ip", "netns", "exec", NS_LEGIT, "python3", str(router_srv), "ROUTER-1 :11", str(legit_dir), str(legit_log)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -450,7 +546,7 @@ def main():
             ns_cmd(NS_EVIL, "ip", "addr", "replace", "10.0.0.1/24", "dev", if_evil)
             procs.append(
                 subprocess.Popen(
-                    ["ip", "netns", "exec", NS_EVIL, "python3", "-m", "http.server", "8080", "--bind", "10.0.0.1", "--directory", str(evil_dir)],
+                    ["ip", "netns", "exec", NS_EVIL, "python3", str(router_srv), "ROUTER-2 :22", str(evil_dir), str(evil_log)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -471,6 +567,8 @@ def main():
                 "  [5] Zurück zum legitimen Campus-AP (:11)\n"
                 "  [6] Portal im Browser des virtuellen Clients öffnen\n"
                 "  [7] 8 Sekunden virtuelle 802.11-Pakete anzeigen\n"
+                "  [8] Router-Sicht anzeigen (Clients + HTTP-Logs von Router 1 & 2)\n"
+                "  [9] Live-Monitor (Router-Traffic in Echtzeit mitlesen)\n"
                 "  [q] Beenden & aufräumen"
             )
             try:
@@ -492,6 +590,10 @@ def main():
                 open_portal()
             elif choice == "7":
                 show_packet_trace()
+            elif choice == "8":
+                show_router_view(if_legit, if_evil, legit_log, evil_log, evil_started)
+            elif choice == "9":
+                live_router_monitor(legit_log, evil_log)
             elif choice == "q":
                 break
     finally:

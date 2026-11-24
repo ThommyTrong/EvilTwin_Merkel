@@ -17,6 +17,8 @@ Ablauf im interaktiven Menü:
   [4] Client auf Evil Twin (:22) wechseln -> dieselbe URL zeigt Fake-Portal
   [6] Browser im virtuellen Client-Netzwerk mit grafischem Portal öffnen
   [7] 8 Sekunden echte virtuelle 802.11-Pakete über tshark anzeigen
+  [8] Router-Sicht: Verbundene Clients & HTTP-Logs beider Router (:11 vs. :22)
+  [9] Live-Monitor: Traffic auf Router 1 & Router 2 in Echtzeit mitlesen
 
 Sicherheitsgrenzen der Demo:
   - Kein Deauthentication-Angriff: Der Wechsel wird absichtlich mit

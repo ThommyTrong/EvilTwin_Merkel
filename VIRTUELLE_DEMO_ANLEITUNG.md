@@ -57,9 +57,11 @@ sudo python3 lab/evil_twin_lab.py --mode open   # Offenes Gast-WLAN
 2. **[3] Evil Twin starten:** Zweiter AP (`02:00:00:00:00:22`) startet mit identischer SSID `Seminar-Gast`.
 3. **[2] WLAN-Scan:** Zeigt beide gleichnamigen Access Points im Scan.
 4. **[4] Wechsel auf Evil Twin:** Client wechselt auf `:22`; dieselbe URL `http://10.0.0.1:8080` liefert jetzt das simulierte Evil-Twin-Portal.
-5. **[6] Browser öffnen:** Firefox zeigt die aktuelle Portal-Seite aus dem Netzwerk-Namespace des virtuellen Clients.
+5. **[6] Browser öffnen:** Firefox zeigt die aktuelle Portal-Seite aus dem Netzwerk-Namespace des virtuellen Clients (inkl. Test-Links wie `/stundenplan`, `/mensa`, `/news`).
 6. **[7] Pakete anzeigen:** Erfasst acht Sekunden virtuelle 802.11-Frames direkt von `hwsim0`.
-7. **[q] Beenden:** Stoppt alle Prozesse, löscht die Namespaces und entlädt `mac80211_hwsim`.
+7. **[8] Router-Sicht:** Zeigt, welcher Router aktuell verbunden ist (`station dump`) und welche HTTP-Anfragen auf Router 1 (`:11`) vs. Router 2 (`:22`) angekommen sind.
+8. **[9] Live-Monitor:** Verfolgt in Echtzeit, wie Klicks im Browser je nach verbundenem AP direkt bei Router 1 oder Router 2 protokolliert werden.
+9. **[q] Beenden:** Stoppt alle Prozesse, löscht die Namespaces und entlädt `mac80211_hwsim`.
 
 ## 5. Browser und Portal
 
