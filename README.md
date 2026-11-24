@@ -1,6 +1,17 @@
 # 🎯 Evil Twin - DHBW Praxisarbeit Präsentation
 ## Komplettes Paket für 20-minütige Offensive Security Verteidigung
 
+## 🖥️ Interaktive Web-Demo (empfohlen für die Präsentation)
+
+Eine schön gestaltete, interaktive Browser-Visualisierung des kompletten
+Evil-Twin-Ablaufs — Netzwerk-Topologie, Handy-Mockup, Frame-Log, alles live
+konfigurierbar (SSID, Signalstärke, WPA2/WPA3, Deauth/Portal ein-/ausblendbar):
+
+- [webdemo/index.html](webdemo/index.html) — einfach im Browser öffnen
+- [webdemo/README.md](webdemo/README.md) — Bedienungsanleitung
+
+Läuft komplett offline, ohne Installation, ohne echte Netzwerkdaten.
+
 ## Virtuelle Labor-Demo
 
 Für die Live-Demo ohne echten WLAN-USB-Adapter siehe:

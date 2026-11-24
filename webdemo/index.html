@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Evil Twin · Interaktive Live-Demo</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ===== Kopfzeile ===== -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <img src="assets/dhbw-logo.png" alt="DHBW Logo" class="logo">
+      <div class="title-block">
+        <h1>Evil Twin <span class="dot">·</span> Angriffs-Simulation</h1>
+        <p>Interaktive Visualisierung · Offensive Security · keine echten Funkframes</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="badge badge-sim">SIMULATION — keine echten Netzwerkdaten</span>
+      <button class="btn btn-ghost" id="btnPresent" title="Bedienfeld ein-/ausblenden">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 5h18M3 12h18M3 19h18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+        Präsentationsmodus
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- ===== Linke Spalte: Konfiguration ===== -->
+    <aside class="panel config-panel" id="configPanel">
+      <h2>Szenario konfigurieren</h2>
+
+      <div class="field">
+        <label for="ssid">WLAN-Name (SSID)</label>
+        <input type="text" id="ssid" maxlength="24" value="Seminar-Gast">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>BSSID · legitimer AP</label>
+          <div class="mono-tag good" id="bssidLegit">02:1A:7F:0E:00:11</div>
+        </div>
+        <div class="field">
+          <label>BSSID · Evil Twin</label>
+          <div class="mono-tag bad" id="bssidEvil">02:1A:7F:0E:00:22</div>
+        </div>
+      </div>
+      <button class="btn btn-small" id="btnRandomize">↻ BSSIDs neu auswürfeln</button>
+
+      <div class="field">
+        <label>Sicherheitsmodus</label>
+        <div class="segmented" id="securityMode">
+          <button data-value="open" class="seg-btn">Offen</button>
+          <button data-value="wpa2" class="seg-btn active">WPA2</button>
+          <button data-value="wpa3" class="seg-btn">WPA3 + PMF</button>
+        </div>
+        <p class="hint" id="securityHint"></p>
+      </div>
+
+      <div class="field">
+        <label>Signalstärke legitimer AP: <b id="legitSignalVal">55%</b></label>
+        <input type="range" id="legitSignal" min="10" max="100" value="55">
+      </div>
+      <div class="field">
+        <label>Signalstärke Evil Twin: <b id="evilSignalVal">85%</b></label>
+        <input type="range" id="evilSignal" min="10" max="100" value="85">
+      </div>
+
+      <div class="field toggles">
+        <label class="switch-row">
+          <input type="checkbox" id="toggleDeauth" checked>
+          <span>Deauthentication-Schritt zeigen</span>
+        </label>
+        <label class="switch-row">
+          <input type="checkbox" id="togglePortal" checked>
+          <span>Fake-Portal / Phishing zeigen</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label>Autoplay-Geschwindigkeit</label>
+        <input type="range" id="speed" min="1" max="3" value="2" step="1">
+      </div>
+
+      <div class="field-row">
+        <button class="btn btn-primary" id="btnReset">↺ Zurücksetzen</button>
+      </div>
+
+      <div class="legend">
+        <h3>Legende</h3>
+        <div class="legend-item"><span class="legend-swatch good"></span> Legitime Verbindung</div>
+        <div class="legend-item"><span class="legend-swatch bad"></span> Evil-Twin / Angriff</div>
+        <div class="legend-item"><span class="legend-swatch neutral"></span> Unbeteiligt / inaktiv</div>
+      </div>
+    </aside>
+
+    <!-- ===== Mitte: Bühne (Topologie + Log) ===== -->
+    <main class="stage">
+
+      <!-- Schritt-Leiste -->
+      <div class="stepbar" id="stepbar"></div>
+
+      <div class="stage-grid">
+
+        <!-- Netzwerk-Topologie -->
+        <section class="panel topo-panel">
+          <div class="panel-head">
+            <h2>Netzwerk-Topologie</h2>
+            <div class="playback">
+              <button class="icon-btn" id="btnPrev" title="Schritt zurück">⏮</button>
+              <button class="icon-btn icon-btn-main" id="btnPlay" title="Abspielen/Pause">▶</button>
+              <button class="icon-btn" id="btnNext" title="Schritt vor">⏭</button>
+            </div>
+          </div>
+          <svg id="topoSvg" viewBox="0 0 1000 560" class="topo-svg"></svg>
+          <div class="step-caption">
+            <span class="step-index" id="stepIndexLabel">Schritt 1 / 7</span>
+            <h3 id="stepTitle">Ausgangslage</h3>
+            <p id="stepDesc">Normalbetrieb im Funknetz.</p>
+          </div>
+        </section>
+
+        <!-- Rechte Spalte: Handy + Log -->
+        <section class="side-stack">
+
+          <div class="panel phone-panel">
+            <h2>Sicht des Opfergeräts</h2>
+            <div class="phone-mock">
+              <div class="phone-notch"></div>
+              <div class="phone-screen" id="phoneScreen"></div>
+            </div>
+          </div>
+
+          <div class="panel log-panel">
+            <h2>Frame- &amp; Datenfluss-Log</h2>
+            <div class="log-table-wrap">
+              <table class="log-table">
+                <thead>
+                  <tr><th>Zeit</th><th>Typ</th><th>Von → Zu</th><th>Details</th></tr>
+                </thead>
+                <tbody id="logBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    DHBW Lörrach · Offensive Security · Evil Twin — Diese Anwendung läuft vollständig lokal im Browser.
+    Es werden keine echten WLAN-Signale gesendet, keine echten Geräte angesprochen und keine echten
+    Zugangsdaten verarbeitet.
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
