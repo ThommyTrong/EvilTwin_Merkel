@@ -15,6 +15,7 @@ Aufbau:
 import argparse
 import os
 import pwd
+import re
 import shutil
 import subprocess
 import sys
@@ -242,7 +243,7 @@ def iface_in_ns(ns):
     return ifaces[0]
 
 
-def write_hostapd_conf(path, iface, bssid, channel, mode):
+def write_hostapd_conf(path, iface, bssid, channel, mode, ctrl_dir=None):
     lines = [
         f"interface={iface}",
         "driver=nl80211",
@@ -252,6 +253,11 @@ def write_hostapd_conf(path, iface, bssid, channel, mode):
         f"channel={channel}",
         "auth_algs=1",
     ]
+    if ctrl_dir is not None:
+        # Erlaubt hostapd_cli "deauthenticate", damit der AP seinen eigenen
+        # Client gezielt trennen kann (wie der "Gerät trennen"-Knopf im
+        # Router-Admin-Interface) - kein gespoofter Angreifer-Frame.
+        lines.append(f"ctrl_interface={ctrl_dir}")
     if mode == "wpa2":
         lines += [
             "wpa=2",
@@ -295,6 +301,35 @@ def write_wpa_conf(path, mode):
         ]
     lines.append("}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def interface_mac(if_name, ns=None):
+    """Liest die aktuell genutzte MAC-Adresse eines Interfaces (auch bei
+    MAC-Randomisierung durch NetworkManager im --kali-ui-Modus)."""
+    if ns:
+        res = ns_cmd(ns, "ip", "-o", "link", "show", if_name, check=False, capture=True)
+    else:
+        res = run(["ip", "-o", "link", "show", if_name], check=False, capture=True)
+    match = re.search(r"link/ether ([0-9a-fA-F:]{17})", res.stdout or "")
+    return match.group(1) if match else None
+
+
+def kick_client(label, ap_ns, ap_iface, ctrl_dir, client_mac):
+    """Lässt den eigenen AP (hostapd) seinen eigenen, aktuell verbundenen
+    Client trennen - technisch identisch zum 'Gerät trennen'-Knopf in einem
+    Router-Admin-Interface. Es wird dabei KEINE fremde BSSID vorgetäuscht;
+    hostapd signiert den Deauth-Frame für seine eigene, echte BSSID."""
+    if not find_bin("hostapd_cli"):
+        print("\n[!] hostapd_cli nicht gefunden. Installieren: sudo apt install -y hostapd")
+        return
+    if not client_mac:
+        print("\n[!] Konnte die aktuelle MAC-Adresse des Clients nicht bestimmen.")
+        return
+    cmd = ["hostapd_cli", "-p", str(ctrl_dir), "-i", ap_iface, "deauthenticate", client_mac]
+    print(f"\n$ ip netns exec {ap_ns} {' '.join(cmd)}")
+    res = ns_cmd(ap_ns, *cmd, check=False, capture=True)
+    print(" ", res.stdout.strip())
+    print(f"[*] {label} hat den Client ({client_mac}) getrennt — echter, vom eigenen AP signierter Deauth-Frame.")
 
 
 def cleanup(procs, tmpdir):
@@ -685,8 +720,12 @@ def main():
         conf_legit = tmpdir / "hostapd_legit.conf"
         conf_evil = tmpdir / "hostapd_evil.conf"
         conf_wpa = tmpdir / "wpa_client.conf"
-        write_hostapd_conf(conf_legit, if_legit, BSSID_REAL, 6, args.mode)
-        write_hostapd_conf(conf_evil, if_evil, BSSID_EVIL, 11, args.mode)
+        ctrl_legit = tmpdir / "hostapd_ctrl_legit"
+        ctrl_evil = tmpdir / "hostapd_ctrl_evil"
+        ctrl_legit.mkdir(parents=True, exist_ok=True)
+        ctrl_evil.mkdir(parents=True, exist_ok=True)
+        write_hostapd_conf(conf_legit, if_legit, BSSID_REAL, 6, args.mode, ctrl_dir=ctrl_legit)
+        write_hostapd_conf(conf_evil, if_evil, BSSID_EVIL, 11, args.mode, ctrl_dir=ctrl_evil)
         write_wpa_conf(conf_wpa, args.mode)
 
         print(f"[*] Starte legitimen Campus-AP ({SSID}, BSSID {BSSID_REAL}, Modus: {args.mode})...")
@@ -786,6 +825,8 @@ def main():
                 "  [7] 8 Sekunden virtuelle 802.11-Pakete anzeigen\n"
                 "  [8] Router-Sicht anzeigen (Clients + HTTP-Logs von Router 1 & 2)\n"
                 "  [9] Live-Monitor (Router-Traffic in Echtzeit mitlesen)\n"
+                "  [10] Router 1 trennt deinen Client (hostapd 'Gerät trennen')\n"
+                "  [11] Router 2 trennt deinen Client (hostapd 'Gerät trennen')\n"
                 "  [q] Beenden & aufräumen"
             )
             try:
@@ -824,6 +865,15 @@ def main():
                 show_router_view(if_legit, if_evil, legit_log, evil_log, evil_started)
             elif choice == "9":
                 live_router_monitor(legit_log, evil_log)
+            elif choice == "10":
+                client_mac = interface_mac(if_client, ns=None if args.kali_ui else NS_CLIENT)
+                kick_client("Router 1 (:11)", NS_LEGIT, if_legit, ctrl_legit, client_mac)
+            elif choice == "11":
+                if not evil_started:
+                    print("\n[!] Router 2 läuft noch nicht. Erst [3] drücken.")
+                    continue
+                client_mac = interface_mac(if_client, ns=None if args.kali_ui else NS_CLIENT)
+                kick_client("Router 2 (:22)", NS_EVIL, if_evil, ctrl_evil, client_mac)
             elif choice == "q":
                 break
     finally:

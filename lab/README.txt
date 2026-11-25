@@ -23,10 +23,15 @@ Ablauf im interaktiven Menü:
   [7] 8 Sekunden echte virtuelle 802.11-Pakete über tshark anzeigen
   [8] Router-Sicht: Verbundene Clients & HTTP-Logs beider Router (:11 vs. :22)
   [9] Live-Monitor: Traffic auf Router 1 & Router 2 in Echtzeit mitlesen
+  [10] Router 1 trennt deinen Client (hostapd 'Gerät trennen', wie Router-Admin-UI)
+  [11] Router 2 trennt deinen Client (hostapd 'Gerät trennen', wie Router-Admin-UI)
 
 Sicherheitsgrenzen der Demo:
-  - Kein Deauthentication-Angriff: Der Wechsel wird absichtlich mit
-    wpa_cli roam ausgelöst, damit nur der eigene virtuelle Client betroffen ist.
+  - Kein gespoofter Deauth-Angriff: [10]/[11] nutzen hostapd_cli deauthenticate,
+    d.h. der jeweils EIGENE AP trennt seinen EIGENEN, bereits verbundenen
+    Client über sein eigenes Kontrollinterface (ctrl_interface). Das ist
+    technisch dasselbe wie der "Gerät trennen"-Knopf im Router-Admin-UI und
+    KEIN gefälschter Deauth-Frame mit fremder Absender-BSSID.
   - Keine DNS-Manipulation: Die Seite ist nur direkt über 10.0.0.1:8080 erreichbar.
   - Keine Datenerfassung: Das Fake-Portal nutzt nur schreibgeschützte Dummy-
     Werte. Der Demo-Button erzeugt ausschließlich GET /demo-freigegeben.

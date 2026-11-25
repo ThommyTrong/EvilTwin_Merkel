@@ -64,7 +64,8 @@ sudo python3 lab/evil_twin_lab.py --mode wpa3                # Vergleich: WPA3 +
 6. **[7] Pakete anzeigen:** Erfasst acht Sekunden virtuelle 802.11-Frames direkt von `hwsim0`.
 7. **[8] Router-Sicht:** Zeigt, welcher Router aktuell verbunden ist (`station dump`) und welche HTTP-Anfragen auf Router 1 (`:11`) vs. Router 2 (`:22`) angekommen sind.
 8. **[9] Live-Monitor:** Verfolgt in Echtzeit, wie Klicks im Browser je nach verbundenem AP direkt bei Router 1 oder Router 2 protokolliert werden.
-9. **[q] Beenden:** Stoppt alle Prozesse, löscht die Namespaces und entlädt `mac80211_hwsim`.
+9. **[10]/[11] Client trennen:** Lässt Router 1 bzw. Router 2 seinen eigenen, aktuell verbundenen Client über `hostapd_cli deauthenticate` trennen — technisch wie der "Gerät trennen"-Knopf in einem echten Router-Admin-Interface, kein gefälschter Deauth-Frame mit fremder BSSID. `iw dev <if> link` zeigt danach `Not connected.`
+10. **[q] Beenden:** Stoppt alle Prozesse, löscht die Namespaces und entlädt `mac80211_hwsim`.
 
 ## 5. Browser und Portal
 
